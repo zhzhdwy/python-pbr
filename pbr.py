@@ -2,28 +2,51 @@
 # -*- coding: utf-8 -*-
 
 """Usage:
-  pbr [ --ctl=<eth0> | --cuc=<eth0> | --cmb=<eth0> | --wasu=<eth0> ]
+  pbr [ --ctl_gw=<ip> | --cuc_gw=<ip> | --cmb_gw=<ip> | --wasu_gw=<ip> ]
   pbr (-h | --help)
 
 Options:
-  -h --help     Show this screen.
-  --ctl         List newly added packages.
-  --cuc         List removed packages.
-  --cmb
-  --wasu
+  -h --help          Show this screen.
+  --ctl-gw=<ip>      Plase give ctl gateway for this server, If not, do not write.
 """
 
-import os
-import ipz
-from docopt import docopt
+import os, sys, re
+import commands
 
+try:
+    from docopt import docopt
+except ImportError,e:
+    ask = raw_input("pip install docopt(Y/n)?") or "y"
+    print ask
+    if ask.lower() == "y":
+        (status, output) = commands.getstatusoutput("pip install docopt")
+    else:
+        print ("bye~")
+        sys.exit (1)
+    print status
+    if status == 0:
+        from docopt import docopt
+    else:
+        print ("install error")
+        sys.exit (1)
+
+def ipGeter():
+    (status, output) = commands.getstatusoutput("ip a")
+    patt_netip = re.findall(r'inet\s(?P<ip>\d+\.\d+\.\d+\.\d+)\/(?P<netmask>\d+)\sbrd\s(?P<brd>\d+\.\d+\.\d+\.\d+)\sscope global\s(?P<card>.+)', output)
+
+def router(cmb_gw, wasu_gw, cuc_gw, ctl_gw):
+    print cmb_gw, wasu_gw, cuc_gw, ctl_gw
 
 
 def main():
-    arguments = docopt(__doc__, version='Naval Fate 2.0')
-    print(arguments)
-    #if ipz.ipz('1.1.1.1', '24')['errcode']:
-    #    print 1
+    args = docopt(__doc__, version='Naval Fate 2.0')
+    kwargs = {
+       'cmb_gw': args['--cmb_gw'],
+       'ctl_gw': args['--ctl_gw'],
+       'cuc_gw': args['--cuc_gw'],
+       'wasu_gw': args['--wasu_gw'],
+    }
+    router(**kwargs)
 
 if __name__ == '__main__':
     main()
