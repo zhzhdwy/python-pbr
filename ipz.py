@@ -37,18 +37,20 @@ class Requirements(object):
     #ip输入格式检查
     def formatCheck(self):
         ip, mask = self.ip, self.mask
-        formatCheck_dict = {'errcode': 0, 'errmsg': []}
+        formatCheck_dict = {'errcode': 1, 'errmsg': []}
         #点分十进制ip地址检查
         if re.match("^(([01]?[0-9]{1,2}|2[0-4][0-9]|25[0-5])(\.([01]?[0-9]{1,2}|2[0-4][0-9]|25[0-5])){3}|([0-9a-fA-F]{1,4}:)+:?([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4})$", ip) == None:
             #二进制IP地址检查
             if re.match("[1|0]{32}", ip) == None:
                 formatCheck_dict['errmsg'].append('ERROR_IP_FORMAT')
+                formatCheck_dict['errcode'] = 2
         #子网掩码检查合法性
         if mask not in mask_mod:
             if mask not in mask_mod.values():
                 formatCheck_dict['errmsg'].append('ERROR_NETMASK_FORMAT')
+                formatCheck_dict['errcode'] = 3
         if formatCheck_dict['errmsg'] == []:
-            formatCheck_dict['errcode'] = 1
+            formatCheck_dict['errcode'] = 0
         return formatCheck_dict
 
     #输入点分十进制或者二进制都能给出十进制和二进制的字典集合
@@ -128,7 +130,7 @@ class Requirements(object):
 
 def ipz(ip, netmask):
     ipa = Requirements(ip, netmask)
-    if ipa.formatCheck()['errcode']:
+    if not ipa.formatCheck()['errcode']:
         ip_range = ipa.iprange()
         nid = ipa.nider()
         brd = ipa.brder()
@@ -141,7 +143,7 @@ def ipz(ip, netmask):
                     'ip_range': ip_range,
                     'netmask': netmask,
                     'renetmask': renetmask,
-                    'errcode': '1',
+                    'errcode': 0,
                    }
         return ipinfo
     else:
