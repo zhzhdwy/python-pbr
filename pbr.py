@@ -32,7 +32,6 @@ except ImportError,e:
         sys.exit (1)
 
 
-
 def ipGeter():
     (status, output) = commands.getstatusoutput("ip a")
     patt_netip = re.findall(r'inet\s(?P<ip>\d+\.\d+\.\d+\.\d+)\/(?P<netmask>\d+)\sbrd\s\d+\.\d+\.\d+\.\d+\sscope global\s(?P<card>.+)', output)
@@ -40,6 +39,7 @@ def ipGeter():
 
 def router(**kwargs):
     print kwargs
+
 
 
 def main():
@@ -50,8 +50,8 @@ def main():
        'cuc_gw': args['--cuc_gw'],
        'wasu_gw': args['--wasu_gw'],
     }
-    #router(**kwargs)
     print ipGeter()
+    router(**kwargs)
 
 if __name__ == '__main__':
     main()

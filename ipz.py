@@ -154,7 +154,7 @@ def ipz(ip, netmask):
 
 
 def main():
-    args = docopt(__doc__, version='Naval Fate 2.0')
+    args = docopt(__doc__, version='ipz 1.0')
     kwargs = {
        'ip': args['<ip>'],
        'netmask': args['<netmask>'],
