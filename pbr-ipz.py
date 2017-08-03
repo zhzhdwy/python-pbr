@@ -53,7 +53,7 @@ LOGFILE = '/var/log/pbr.log'
 移动缩写CMB，路由表号：15
 '''
 
-ISP_TABLE = {'CTL': 5,
+ISP_TABLE = {'CTL': 20,
              'CUC': 10,
              'CMB': 15,
              }
@@ -330,7 +330,7 @@ class RequireRule(object):
             rule = 'ip rule del pref {0}'.format(pref)
             (status, output) = commands.getstatusoutput(rule)
             rate('Reset rule', pref, 32766)
-        print ('Reset rule progress has been completed.')
+        log('', 'Reset rule progress has been completed.')
 
 def ipz(ip, netmask):
     ipa = RequireIpz(ip, netmask)
@@ -449,4 +449,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
