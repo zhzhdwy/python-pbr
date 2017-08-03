@@ -264,7 +264,7 @@ def router(**kwargs):
             route = pbr.setRouter(ispname, type)
             if not route['errcode']:
                 executeScript('Set {} route to {}'.format(ispname, gwip), route['routelist'])
-                log('', 'Set {} route to {} progress has been completed.').format(ispname, gwip)
+                log('', 'Set {} route to {} progress has been completed.'.format(ispname, gwip))
             else:
                 errmsg = 'ispname: {} gwip: {} errmsg: {}'.format(ispname, gwip, route['errmsg'])
                 errcode = 'errcode: {}'.format(route['errcode'])
