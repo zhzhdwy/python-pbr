@@ -305,7 +305,7 @@ class RequireRule(object):
 
         # 再删除原先1001-10000的旧策略，如果修改定义范围一定要修改此处！！！！！！！
         for pref in range (normal_start_pref, normal_end_pref + 1):
-            rulelist.append('ip rule del pref {2}'.format(pref))
+            rulelist.append('ip rule del pref {0}'.format(pref))
 
         # 再把新策略添加一次到1001-10000
         normal_start_pref, normal_end_pref = ISP_PREF[self.ispname]['start'], ISP_PREF[self.ispname]['end']
@@ -362,7 +362,7 @@ def executeScript(progressname, command):
         (status, output) = commands.getstatusoutput(route)
         rate(progressname, i, len(command))
         # 这个地方缺对shell命令执行的报错处理、和执行进度的处理。
-        if status and status != 65024:
+        if status and not 'No such file or directory' in output:
             log('{0} line'.format(i + 1), output)
 
 # 需不需要写一个专门生成日志的方法
@@ -449,3 +449,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
