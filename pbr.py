@@ -54,9 +54,9 @@ ISP_TABLE = {'CTL': 5,
 '''
 在github维护了几个ISP rule列表，此次定义ISP列表本地维护位置。刷脚本的时候先用本地的，本地没有才会下载。也可以更改以下链接地址。
 '''
-rule_URL ={'CTL': 'https://raw.githubusercontent.com/zhzhdwy/python-pbr/master/CTL',
-          'CUC': 'https://raw.githubusercontent.com/zhzhdwy/python-pbr/master/CUC',
-          'CMB': 'https://raw.githubusercontent.com/zhzhdwy/python-pbr/master/CMB',
+rule_URL ={'CTL': 'https://raw.githubusercontent.com/zhzhdwy/python-pbr/master/isp/CMB',
+          'CUC': 'https://raw.githubusercontent.com/zhzhdwy/python-pbr/master/isp/CUC',
+          'CMB': 'https://raw.githubusercontent.com/zhzhdwy/python-pbr/master/isp/CMB',
           }
 
 rule_file = {'CTL': '/tmp/CTL',
@@ -265,8 +265,8 @@ class RequireRule(object):
             try:
                 log('', 'Download rule list from {0}'.format(rule_URL[self.ispname]))
                 r = urllib2.urlopen(rule_URL[self.ispname], timeout=3)
-            except urllib2.URLError:
-                return {'errcode': 4, 'errmsg': 'ISP_URL_CONNECT_TIMEOUT'}
+            except:
+                return {'errcode': 4, 'errmsg': 'DOWNLOAD_ISP_URL_ERROR'}
             segment = r.read().split('\n')
             return {'errcode': 0, 'segment': segment}
         else:
