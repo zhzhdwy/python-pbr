@@ -4,7 +4,7 @@
 """Usage:
   pbr route (add|update) [ --ctl-gw=<ip> ] [ --cuc-gw=<ip> ] [ --cmb-gw=<ip> ]
   pbr rule remove
-  pbr rule update [ ctl ]  [ cuc ]  [ cmb ]
+  pbr rule update [ --ctl-gw=<ip> ] [ --cuc-gw=<ip> ] [ --cmb-gw=<ip> ]
   pbr (-h | --help)
   pbr --version
 
@@ -17,9 +17,6 @@ Options:
   --cmb-gw=<ip>         填写一个移动网关地址.
   rule remove           策略移除，清除全部策略路由表项。由于一个优先级可以有多个策略，可以使用多次清除rule表。
   rule update           策略更新，默认更新三线所有表项，使用/tmp/,如果没有则去github上下载.使用过其他脚本刷rule表的请清空rule表。
-  ctl                   可单独更新电信
-  cuc                   可单独更新联通
-  cmb                   可单独更新移动
 """
 
 import sys, re, os, time
@@ -72,9 +69,17 @@ rule表中0~32767，可使用1~32765。10001~20000为更新路由规则区域。
 4001~7000：匹配联通明细地址，14001~17000联通更新区域
 7001~10000：匹配移动明细地址，17001~19000移动更新区域
 '''
-ISP_PREF = {'CTL':  {'start': 1001, 'end': 4000},
-            'CUC':  {'start': 4001, 'end': 7000},
-            'CMB':  {'start': 7001, 'end': 10000},
+ISP_PREF = {'CTL':  {'start': 1001, 'end': 4000, 'startu': 11001, 'endu': 14000},
+            'CUC':  {'start': 4001, 'end': 7000, 'startu': 14001, 'endu': 17000},
+            'CMB':  {'start': 7001, 'end': 10000, 'startu': 17001, 'endu': 20000},
+            }
+
+'''
+控制根据源地址选择路由表的功能，不加这个功能就会有使用电信地址从联通出口出去
+'''
+SIP_PREF = {'CTL': {'use': 1, 'update': 5},
+            'CUC': {'use': 2, 'update': 6},
+            'CMB': {'use': 3, 'update': 7},
             }
 
 
@@ -188,9 +193,9 @@ class RequireIpz(object):
         ip_range_dict = {'start_ip': start_ip_dict, 'end_ip': end_ip_dict}
         return ip_range_dict
 
-class RequireRoute(object):
+class Requirements(object):
     def __init__(self, ispname, gwip):
-        super(RequireRoute, self).__init__()
+        super(Requirements, self).__init__()
         self.ispname = str(ispname)
         self.gwip = str(gwip)
 
@@ -252,11 +257,6 @@ class RequireRoute(object):
         return {'errcode': 0, 'routelist': routelist}
 
 
-class RequireRule(object):
-    def __init__(self, ispname):
-        super(RequireRule, self).__init__()
-        self.ispname = str(ispname)
-
 # rule脚本生成部分，后面会用定义个函数专门执行脚本
 
     # 查看/tmp/下有没有对应ISP目的IP段的列表文件，没有就起git上下载
@@ -278,42 +278,55 @@ class RequireRule(object):
     # 为明细路由生成rule条目脚本，后面再用executeScript()脚本执行
     def setRuler(self):
         # 这个地方没做下载成功判断
-        segment = self.getRule()
-        if not segment['errcode']:
-            segment = segment['segment']
-        else:
+        segment, if_match, rulelist = self.getRule(), self.ifMatch(), []
+        if if_match['errcode']:
+            return if_match
+        elif segment['errcode']:
             return segment
-        rulelist = []
+        else:
+            segment, sip, table = segment['segment'], if_match['ip'], ISP_TABLE[self.ispname]
+        # 这个地方要补一个from本地就去什么运营商的
+        rule = 'ip rule add from {0} table {1} pref {2}'.format(sip, table, SIP_PREF[self.ispname]['update'])
+        rulelist.append(rule)
+        rule = 'ip rule del pref {2}'.format(sip, table, SIP_PREF[self.ispname]['use'])
+        rulelist.append(rule)
+        rule = 'ip rule add from {0} table {1} pref {2}'.format(sip, table, SIP_PREF[self.ispname]['use'])
+        rulelist.append(rule)
+        rule = 'ip rule del pref {2}'.format(sip, table, SIP_PREF[self.ispname]['update'])
+        rulelist.append(rule)
         # 将全局优先级变量传进来
         normal_start_pref, normal_end_pref = ISP_PREF[self.ispname]['start'], ISP_PREF[self.ispname]['end']
-        update_start_pref, update_end_pref = ISP_PREF[self.ispname]['start'] + 10000, ISP_PREF[self.ispname]['end'] + 10000
+        update_start_pref, update_end_pref = ISP_PREF[self.ispname]['startu'], ISP_PREF[self.ispname]['endu']
         # 这里添加rule的构思是先将新策略添加到11001-20000策略中
         for seg in segment:
             # 支持在ISP网段列表含有#号的行均为备注，空行不关注
             if '#' in seg or seg == '': continue
             # 去掉segment里面的回车，这个地方用了三个replace，不知道需不需要优化
             seg = seg.replace('\n', '').replace('\r\n', '').replace('\r', '')
-            rulelist.append('ip rule add to {0} table {1} pref {2}'.format(seg, ISP_TABLE[self.ispname], update_start_pref))
+            rule = 'ip rule add to {0} table {1} pref {2}'.format(seg, table, update_start_pref)
+            rulelist.append(rule)
             update_start_pref += 1
 
         # 再删除原先1001-10000的旧策略，如果修改定义范围一定要修改此处！！！！！！！
         for pref in range (normal_start_pref, normal_end_pref + 1):
-            rulelist.append('ip rule del pref {0}'.format(pref))
+            rule = 'ip rule del pref {0}'.format(pref)
+            rulelist.append(rule)
 
         # 再把新策略添加一次到1001-10000
-        normal_start_pref, normal_end_pref = ISP_PREF[self.ispname]['start'], ISP_PREF[self.ispname]['end']
         for seg in segment:
             # 支持在ISP网段列表含有#号的行均为备注，空行不关注
             if '#' in seg or seg == '': continue
             # 去掉segment里面的回车，这个地方用了三个replace，不知道需不需要优化
             seg = seg.replace('\n', '').replace('\r\n', '').replace('\r', '')
-            rulelist.append('ip rule add to {0} table {1} pref {2}'.format(seg, ISP_TABLE[self.ispname], normal_start_pref))
+            rule = 'ip rule add to {0} table {1} pref {2}'.format(seg, table, normal_start_pref)
+            rulelist.append(rule)
             normal_start_pref += 1
 
         # 再删除11001-20000策略中的新策略，这个地方update_start_pref前面有自加的情况，所以重新赋值
-        update_start_pref, update_end_pref = ISP_PREF[self.ispname]['start'] + 10000, ISP_PREF[self.ispname]['end'] + 10000
-        for pref in range (update_start_pref, update_end_pref + 1):
-            rulelist.append('ip rule del pref {0}'.format(pref))
+        update_start_pref = ISP_PREF[self.ispname]['startu']
+        for pref in range(update_start_pref, update_end_pref + 1):
+            rule = 'ip rule del pref {0}'.format(pref)
+            rulelist.append(rule)
 
         return {'errcode': 0, 'rulelist': rulelist}
 
@@ -324,6 +337,8 @@ class RequireRule(object):
             (status, output) = commands.getstatusoutput(rule)
             rate('Reset rule', pref, 32766)
         log('', 'Reset rule progress has been completed.')
+
+
 
 def ipz(ip, netmask):
     ipa = RequireIpz(ip, netmask)
@@ -381,7 +396,7 @@ def rate(progressname, current, total):
 def router(**kwargs):
     for ispname, gwip in kwargs['ISP'].items():
         if gwip:
-            pbr = RequireRoute(ispname, gwip)
+            pbr = Requirements(ispname, gwip)
             # 这里控制是否先删除路由
             type = 'update' if kwargs['update'] else 'add'
             # 先生成路由脚本
@@ -399,13 +414,13 @@ def router(**kwargs):
 def ruler(**kwargs):
     # 清除rule表
     if kwargs['remove']:
-        pbr = RequireRule('')
+        pbr = Requirements(ispname, gwip)
         pbr.resetRuler()
     # 选择更新某个表，或者更新三张表
     elif kwargs['update']:
-        for ispname, judge in kwargs['ISP'].items():
-            if judge:
-                pbr = RequireRule(ispname)
+        for ispname, gwip in kwargs['ISP'].items():
+            if gwip:
+                pbr = Requirements(ispname, gwip)
                 sys.stdout.write('Generating script operations.\r')
                 sys.stdout.flush()
                 rule = pbr.setRuler()
@@ -419,25 +434,17 @@ def ruler(**kwargs):
 
 def main():
     args = docopt(__doc__, version='Policy Based Routing for Linux 1.0')
+    kwargs = {'update': args['update'],
+              'add': args['add'],
+              'remove': args['remove'],
+              'ISP': {'CMB': args['--cmb-gw'],
+                      'CTL': args['--ctl-gw'],
+                      'CUC': args['--cuc-gw'],
+                      },
+              }
     if args['route']:
-        kwargs = {
-            'ISP': {'CMB': args['--cmb-gw'],
-                    'CTL': args['--ctl-gw'],
-                    'CUC': args['--cuc-gw'],
-                    },
-            'add': args['add'],
-            'update': args['update'],
-        }
         router(**kwargs)
     elif args['rule']:
-        kwargs = {
-            'ISP': {'CMB': args['cmb'],
-                   'CTL': args['ctl'],
-                   'CUC': args['cuc'],
-                   },
-            'remove': args['remove'],
-            'update': args['update'],
-        }
         ruler(**kwargs)
 
 if __name__ == '__main__':
