@@ -22,26 +22,19 @@ Options:
   cmb                   可单独更新移动
 """
 
-import sys, re, requests, os, time
-import ipz
+import sys, re, os, time
+import urllib2
 import commands
+from docopt import docopt
 
-try:
-    from docopt import docopt
-except ImportError, e:
-    ask = raw_input("pip install docopt(Y/n)?") or "y"
-    print ask
-    if ask.lower() == "y":
-        (status, output) = commands.getstatusoutput("pip install docopt")
-    else:
-        print ("bye~")
-        sys.exit(1)
-    print status
-    if status == 0:
-        from docopt import docopt
-    else:
-        print ("install error")
-        sys.exit(1)
+'''
+如需在CentOS系统当中，脚本开机启动请在/etc/rc.local中添加以下命令（DNS可修改或使用可识别URL或本地文件）：
+echo "nameserver 114.114.114.114" >> /etc/resolv.conf
+/usr/bin/python /etc/pbr-ipz.py route update --ctl-gw=10.0.0.1 --cuc-gw=10.0.0.1 --cmb-gw=10.0.0.1
+/usr/bin/python /etc/pbr-ipz.py rule update ctl cuc cmb
+'''
+        
+        
 '''
 脚本日志，报错均放在/var/log/pbr.log中
 '''
@@ -85,6 +78,116 @@ ISP_PREF = {'CTL':  {'start': 1001, 'end': 4000},
             }
 
 
+mask_mod = {
+    '1': '128.0.0.0', '9': '255.128.0.0',  '17': '255.255.128.0', '25': '255.255.255.128',
+    '2': '192.0.0.0', '10': '255.192.0.0', '18': '255.255.192.0', '26': '255.255.255.192',
+    '3': '224.0.0.0', '11': '225.224.0.0', '19': '255.255.224.0', '27': '255.255.255.224',
+    '4': '240.0.0.0', '12': '255.240.0.0', '20': '255.255.240.0', '28': '255.255.255.240',
+    '5': '248.0.0.0', '13': '255.248.0.0', '21': '255.255.248.0', '29': '255.255.255.248',
+    '6': '225.0.0.0', '14': '255.252.0.0', '22': '255.255.252.0', '30': '255.255.255.252',
+    '7': '254.0.0.0', '15': '255.254.0.0', '23': '255.255.254.0', '31': '255.255.255.254',
+    '8': '255.0.0.0', '16': '255.255.0.0', '24': '255.255.255.0', '32': '255.255.255.255',
+}
+
+
+class RequireIpz(object):
+    def __init__(self, ip, mask):
+        super(RequireIpz, self).__init__()
+        self.ip = str(ip)
+        self.mask = str(mask)
+
+    #ip输入格式检查
+    def formatCheck(self):
+        ip, mask = self.ip, self.mask
+        formatCheck_dict = {'errcode': 1, 'errmsg': []}
+        #点分十进制ip地址检查
+        if re.match("^(([01]?[0-9]{1,2}|2[0-4][0-9]|25[0-5])(\.([01]?[0-9]{1,2}|2[0-4][0-9]|25[0-5])){3}|([0-9a-fA-F]{1,4}:)+:?([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4})$", ip) == None:
+            #二进制IP地址检查
+            if re.match("[1|0]{32}", ip) == None:
+                formatCheck_dict['errmsg'].append('ERROR_IP_FORMAT')
+                formatCheck_dict['errcode'] = 2
+        #子网掩码检查合法性
+        if mask not in mask_mod:
+            if mask not in mask_mod.values():
+                formatCheck_dict['errmsg'].append('ERROR_NETMASK_FORMAT')
+                formatCheck_dict['errcode'] = 3
+        if formatCheck_dict['errmsg'] == []:
+            formatCheck_dict['errcode'] = 0
+        return formatCheck_dict
+
+    #输入点分十进制或者二进制都能给出十进制和二进制的字典集合
+    def formatChange(self, var, type='dotted_decimal'):
+        var = str(var)
+        var_formats_dict = {'bin': '', 'dotted_decimal': ''}
+        if type == "dotted_decimal":
+            var_bin = "".join([ bin(int(i)).split('b')[1].zfill(8) for i in var.split('.')])
+            var_formats_dict['bin'] = var_bin
+            var_formats_dict['dotted_decimal'] = var
+        elif type == "bin":
+            var_dotted_decimal = ".".join([ str(int(var[0:8], 2)), str(int(var[8:16], 2)), str(int(var[16:24], 2)) , str(int(var[24:32], 2)) ])
+            var_formats_dict['bin'] = var
+            var_formats_dict['dotted_decimal'] = var_dotted_decimal
+        return var_formats_dict
+
+    #反向子网掩码
+    def renetmasker(self):
+        ip, mask = self.ip, self.mask
+        mask = self.maskStyle()
+        renetmask_dict = {'renetmask':'', 'bin':''}
+        renetmask_dict['bin'] = ''.join([ str(int(i, 2) ^ 1) for i in mask['bin'][:] ])
+        renetmask_dict['renetmask'] = self.formatChange(renetmask_dict['bin'], type='bin')['dotted_decimal']
+        return renetmask_dict
+
+
+    #输出子网掩码数字和点分十进制格式，返回字典格式
+    def maskStyle(self):
+        ip, mask = self.ip, self.mask
+        mask_dict = {'digital': '', 'dotted_decimal': '','bin':''}
+        #数字/24格式输入，输出点分十进制和二进制
+        if mask in mask_mod:
+            mask_dict['digital'] = mask
+            mask_dict['dotted_decimal'] = mask_mod[mask]
+            mask_dict['bin'] = self.formatChange(mask_dict['dotted_decimal'])['bin']
+        #点分十进制输入，输出数字/24和二进制
+        elif mask in mask_mod.values():
+            for key, value in mask_mod.items():
+                if mask == value:
+                    mask_dict['digital'] = key
+                    mask_dict['dotted_decimal'] = mask
+                    mask_dict['bin'] = self.formatChange(mask)['bin']
+        return mask_dict
+
+    #子网号计算
+    def nider(self):
+        ip, mask = self.ip, self.mask
+        ip = self.formatChange(ip)
+        netmask = self.maskStyle()
+        nid = str( bin(int(ip['bin'], 2) & int(netmask['bin'], 2)).split('b')[1] ).zfill(32)
+        nid_dict = self.formatChange(nid, type='bin')
+        return nid_dict
+
+    #广播号计算
+    def brder(self):
+        ip, mask = self.ip, self.mask
+        nid = self.nider()
+        renetmask = self.renetmasker()
+        brd = bin( int(nid['bin'], 2) ^ int(renetmask['bin'], 2) ).split('b')[1].zfill(32)
+        brd_dict = self.formatChange(brd, type='bin')
+        return brd_dict
+
+    #可用主机范围
+    def iprange(self):
+        ip, mask, nid, brd = self.ip, self.mask, self.nider(), self.brder()
+        if mask == '32' or mask == '255.255.255.255':
+            start_ip_dict = end_ip_dict = self.formatChange(ip)
+        else:
+            start_ip = bin(int(nid['bin'], 2) + 1).split('b')[1].zfill(32)
+            end_ip = bin(int(brd['bin'], 2) - 1).split('b')[1].zfill(32)
+            start_ip_dict = self.formatChange(start_ip, type='bin')
+            end_ip_dict = self.formatChange(end_ip, type='bin')
+        ip_range_dict = {'start_ip': start_ip_dict, 'end_ip': end_ip_dict}
+        return ip_range_dict
+
 class RequireRoute(object):
     def __init__(self, ispname, gwip):
         super(RequireRoute, self).__init__()
@@ -105,8 +208,8 @@ class RequireRoute(object):
         ip_get = self.ipGet()
         ifinfo = {'ip': '', 'nid': '', 'netmask': '', 'gw': '', 'if': '', 'errcode': '', 'errmsg': ''}
         for i in ip_get:
-            ip = ipz.ipz(i['ip'], i['netmask'])
-            gw = ipz.ipz(self.gwip, i['netmask'])
+            ip = ipz(i['ip'], i['netmask'])
+            gw = ipz(self.gwip, i['netmask'])
             # 网关地址不合法
             if gw['errcode']:
                 return {'errcode':2, 'errmsg': 'ERROR_IP_FORMAT'}
@@ -133,17 +236,18 @@ class RequireRoute(object):
         if if_match['errcode']:
             return if_match
         ispname, routelist = self.ispname, []
+        table = ISP_TABLE[ispname]
         nid, netmask, interface, gw = if_match['nid'], if_match['netmask'], if_match['if'], if_match['gw']
         # 删除路由表中的直连和默认路由
         # 这里测试删除再添加，PING并无丢包，延时有2ms的增加。
         if type == 'update':
-            route = 'ip route flush table {}'.format(ISP_TABLE[ispname])
+            route = 'ip route flush table {0}'.format(table)
             routelist.append(route)
         # 为路由表添加直连路由
-        route = 'ip route add to {}/{} dev {} table {}'.format(nid, netmask, interface, ISP_TABLE[ispname])
+        route = 'ip route add to {0}/{1} dev {2} table {3}'.format(nid, netmask, interface, table)
         routelist.append(route)
         # 添加默认路由
-        route = 'ip route add default via {} dev {} table {}'.format(gw, interface, ISP_TABLE[ispname])
+        route = 'ip route add default via {0} dev {1} table {2}'.format(gw, interface, table)
         routelist.append(route)
         return {'errcode': 0, 'routelist': routelist}
 
@@ -159,15 +263,14 @@ class RequireRule(object):
     def getRule(self):
         if not os.path.exists(rule_file[self.ispname]):
             try:
-                log('', 'Download rule list from {}'.format(rule_URL[self.ispname]))
-                r = requests.get(rule_URL[self.ispname], timeout=3)
-            except requests.exceptions.ConnectionError:
+                log('', 'Download rule list from {0}'.format(rule_URL[self.ispname]))
+                r = urllib2.urlopen(rule_URL[self.ispname], timeout=3)
+            except urllib2.URLError:
                 return {'errcode': 4, 'errmsg': 'ISP_URL_CONNECT_TIMEOUT'}
-            # r = requests.get(rule_URL[self.ispname], timeout=3)
-            segment = r.content.split('\n')
+            segment = r.read().split('\n')
             return {'errcode': 0, 'segment': segment}
         else:
-            log('', 'Use rule list from {}'.format(rule_file[self.ispname]))
+            log('', 'Use rule list from {0}'.format(rule_file[self.ispname]))
             with open(rule_file[self.ispname], "r") as f:
                 segment = f.readlines()
             return {'errcode': 0, 'segment': segment}
@@ -190,12 +293,12 @@ class RequireRule(object):
             if '#' in seg or seg == '': continue
             # 去掉segment里面的回车，这个地方用了三个replace，不知道需不需要优化
             seg = seg.replace('\n', '').replace('\r\n', '').replace('\r', '')
-            rulelist.append('ip rule add to {} table {} pref {}'.format(seg, ISP_TABLE[self.ispname], update_start_pref))
+            rulelist.append('ip rule add to {0} table {1} pref {2}'.format(seg, ISP_TABLE[self.ispname], update_start_pref))
             update_start_pref += 1
 
         # 再删除原先1001-10000的旧策略，如果修改定义范围一定要修改此处！！！！！！！
         for pref in range (normal_start_pref, normal_end_pref + 1):
-            rulelist.append('ip rule del pref {}'.format(pref))
+            rulelist.append('ip rule del pref {0}'.format(pref))
 
         # 再把新策略添加一次到1001-10000
         normal_start_pref, normal_end_pref = ISP_PREF[self.ispname]['start'], ISP_PREF[self.ispname]['end']
@@ -204,24 +307,47 @@ class RequireRule(object):
             if '#' in seg or seg == '': continue
             # 去掉segment里面的回车，这个地方用了三个replace，不知道需不需要优化
             seg = seg.replace('\n', '').replace('\r\n', '').replace('\r', '')
-            rulelist.append('ip rule add to {} table {} pref {}'.format(seg, ISP_TABLE[self.ispname], normal_start_pref))
+            rulelist.append('ip rule add to {0} table {1} pref {2}'.format(seg, ISP_TABLE[self.ispname], normal_start_pref))
             normal_start_pref += 1
 
         # 再删除11001-20000策略中的新策略，这个地方update_start_pref前面有自加的情况，所以重新赋值
         update_start_pref, update_end_pref = ISP_PREF[self.ispname]['start'] + 10000, ISP_PREF[self.ispname]['end'] + 10000
         for pref in range (update_start_pref, update_end_pref + 1):
-            rulelist.append('ip rule del pref {}'.format(pref))
+            rulelist.append('ip rule del pref {0}'.format(pref))
 
         return {'errcode': 0, 'rulelist': rulelist}
 
     # 这里补一个初始化清空rule表的方法，直接执行，不生成脚本
     def resetRuler(self):
         for pref in range (1, 32766):
-            rule = 'ip rule del pref {}'.format(pref)
+            rule = 'ip rule del pref {0}'.format(pref)
             (status, output) = commands.getstatusoutput(rule)
             rate('Reset rule', pref, 32766)
-        print ('Reset rule progress has been completed.')
+        log('', 'Reset rule progress has been completed.')
 
+def ipz(ip, netmask):
+    ipa = RequireIpz(ip, netmask)
+    if not ipa.formatCheck()['errcode']:
+        ip_range = ipa.iprange()
+        nid = ipa.nider()
+        brd = ipa.brder()
+        ip = ipa.formatChange(ip)
+        netmask = ipa.maskStyle()
+        renetmask = ipa.renetmasker()
+        ipinfo = {  'ip': ip,
+                    'nid': nid,
+                    'brd': brd,
+                    'ip_range': ip_range,
+                    'netmask': netmask,
+                    'renetmask': renetmask,
+                    'errcode': 0,
+                   }
+        return ipinfo
+    else:
+        ipinfo = { 'errcode': ipa.formatCheck()['errcode'],
+                   'errmsg': ipa.formatCheck()['errmsg'],
+                   }
+        return ipinfo
 
 # 上面的方法都是生成脚本，最后统一在该方法调用系统命令执行
 def executeScript(progressname, command):
@@ -229,13 +355,13 @@ def executeScript(progressname, command):
         (status, output) = commands.getstatusoutput(route)
         rate(progressname, i, len(command))
         # 这个地方缺对shell命令执行的报错处理、和执行进度的处理。
-        if status and status != 65024:
-            log('{} line'.format(i + 1), output)
+        if status and not 'No such file or directory' in output:
+            log('{0} line'.format(i + 1), output)
 
 # 需不需要写一个专门生成日志的方法
 def log(errcode, errmsg):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    log = "Time: {} {} {}".format(timestamp, errcode, errmsg)
+    log = "Time: {0} {1} {2}".format(timestamp, errcode, errmsg)
     print log
     logfile = open(LOGFILE, 'a+')
     logfile.write(log + '\n')
@@ -248,7 +374,7 @@ def rate(progressname, current, total):
     threshold = total / 100
     if current % threshold == 0:
         percent = lambda x: x / threshold if x / threshold < 100 else 100
-        sys.stdout.write('{} has started, completed {}%...\r'.format(progressname, percent(current)))
+        sys.stdout.write('{0} has started, completed {1}%...\r'.format(progressname, percent(current)))
         sys.stdout.flush()
 
 # 路由配置
@@ -263,11 +389,11 @@ def router(**kwargs):
             sys.stdout.flush()
             route = pbr.setRouter(ispname, type)
             if not route['errcode']:
-                executeScript('Set {} route to {}'.format(ispname, gwip), route['routelist'])
-                log('', 'Set {} route to {} progress has been completed.'.format(ispname, gwip))
+                executeScript('Set {0} route to {1}'.format(ispname, gwip), route['routelist'])
+                log('', 'Set {0} route to {1} progress has been completed.'.format(ispname, gwip))
             else:
-                errmsg = 'ispname: {} gwip: {} errmsg: {}'.format(ispname, gwip, route['errmsg'])
-                errcode = 'errcode: {}'.format(route['errcode'])
+                errmsg = 'ispname: {0} gwip: {1} errmsg: {2}'.format(ispname, gwip, route['errmsg'])
+                errcode = 'errcode: {0}'.format(route['errcode'])
                 log(errcode, errmsg)
 # 策略配置
 def ruler(**kwargs):
@@ -284,11 +410,11 @@ def ruler(**kwargs):
                 sys.stdout.flush()
                 rule = pbr.setRuler()
                 if not rule['errcode']:
-                    executeScript('Set {} rule'.format(ispname), rule['rulelist'])
-                    log('', 'Set {} rule progress has been completed.'.format(ispname))
+                    executeScript('Set {0} rule'.format(ispname), rule['rulelist'])
+                    log('', 'Set {0} rule progress has been completed.'.format(ispname))
                 else:
-                    errmsg = 'ispname: {} errmsg: {}'.format(ispname, rule['errmsg'])
-                    errcode = 'errcode: {}'.format(rule['errcode'])
+                    errmsg = 'ispname: {0} errmsg: {1}'.format(ispname, rule['errmsg'])
+                    errcode = 'errcode: {0}'.format(rule['errcode'])
                     log(errcode, errmsg)
 
 def main():
