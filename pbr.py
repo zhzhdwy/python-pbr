@@ -332,13 +332,11 @@ class Requirements(object):
 
     # 这里补一个初始化清空rule表的方法，直接执行，不生成脚本
     def resetRuler(self):
-        for pref in range (1, 32766):
+        for pref in range(11, 32766):
             rule = 'ip rule del pref {0}'.format(pref)
             (status, output) = commands.getstatusoutput(rule)
             rate('Reset rule', pref, 32766)
         log('', 'Reset rule progress has been completed.')
-
-
 
 def ipz(ip, netmask):
     ipa = RequireIpz(ip, netmask)
