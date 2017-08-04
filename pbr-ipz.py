@@ -43,6 +43,14 @@ except ImportError, e:
         print ("install error")
         sys.exit(1)
 '''
+如需在CentOS系统当中，脚本开机启动请在/etc/rc.local中添加以下命令（DNS可修改或使用可识别URL或本地文件）：
+echo "nameserver 114.114.114.114" >> /etc/resolv.conf
+/usr/bin/python /etc/pbr-ipz.py route update --ctl-gw=10.0.0.1 --cuc-gw=10.0.0.1 --cmb-gw=10.0.0.1
+/usr/bin/python /etc/pbr-ipz.py rule update ctl cuc cmb
+'''
+        
+        
+'''
 脚本日志，报错均放在/var/log/pbr.log中
 '''
 LOGFILE = '/var/log/pbr.log'
@@ -53,7 +61,7 @@ LOGFILE = '/var/log/pbr.log'
 移动缩写CMB，路由表号：15
 '''
 
-ISP_TABLE = {'CTL': 20,
+ISP_TABLE = {'CTL': 5,
              'CUC': 10,
              'CMB': 15,
              }
