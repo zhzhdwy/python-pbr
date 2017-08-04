@@ -414,7 +414,7 @@ def router(**kwargs):
 def ruler(**kwargs):
     # 清除rule表
     if kwargs['remove']:
-        pbr = Requirements(ispname, gwip)
+        pbr = Requirements('', '')
         pbr.resetRuler()
     # 选择更新某个表，或者更新三张表
     elif kwargs['update']:
