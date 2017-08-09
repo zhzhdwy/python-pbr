@@ -5,6 +5,7 @@
   pbr route (add|update) [ --ctl-gw=<ip> ] [ --cuc-gw=<ip> ] [ --cmb-gw=<ip> ]
   pbr rule remove
   pbr rule update [ --ctl-gw=<ip> ] [ --cuc-gw=<ip> ] [ --cmb-gw=<ip> ]
+  pbr rule look <ip>
   pbr (-h | --help)
   pbr --version
 
@@ -17,6 +18,7 @@ Options:
   --cmb-gw=<ip>         填写一个移动网关地址.
   rule remove           策略移除，清除全部策略路由表项。由于一个优先级可以有多个策略，可以使用多次清除rule表。
   rule update           策略更新，默认更新三线所有表项，使用/tmp/,如果没有则去github上下载.使用过其他脚本刷rule表的请清空rule表。
+  rule look             策略查找，提供ip地址
 """
 
 import sys, re, os, time
@@ -194,10 +196,10 @@ class RequireIpz(object):
         return ip_range_dict
 
 class Requirements(object):
-    def __init__(self, ispname, gwip):
+    def __init__(self, ispname, ip):
         super(Requirements, self).__init__()
         self.ispname = str(ispname)
-        self.gwip = str(gwip)
+        self.ip = str(ip)
 
 # 获取服务器IP、掩码和接口对应关系
     def ipGet(self):
@@ -214,19 +216,19 @@ class Requirements(object):
         ifinfo = {'ip': '', 'nid': '', 'netmask': '', 'gw': '', 'if': '', 'errcode': '', 'errmsg': ''}
         for i in ip_get:
             ip = ipz(i['ip'], i['netmask'])
-            gw = ipz(self.gwip, i['netmask'])
+            gw = ipz(self.ip, i['netmask'])
             # 网关地址不合法
             if gw['errcode']:
                 return {'errcode':2, 'errmsg': 'ERROR_IP_FORMAT'}
             # 网关地址与IP重复
-            elif self.gwip == i['ip']:
+            elif self.ip == i['ip']:
                 return {'errcode': 3, 'errmsg': 'IP_GETWAY_EQUAL'}
             # 网关地址与IP在相同子网
             elif ip['nid']['dotted_decimal'] == gw['nid']['dotted_decimal']:
                 ifinfo['ip'] = i['ip']
                 ifinfo['nid'] = ip['nid']['dotted_decimal']
                 ifinfo['netmask'] = i['netmask']
-                ifinfo['gw'] = self.gwip
+                ifinfo['gw'] = self.ip
                 ifinfo['if'] = i['if']
                 ifinfo['errcode'] = 0
                 return ifinfo
@@ -236,7 +238,7 @@ class Requirements(object):
 
     # 这里使用type来控制删除还是添加路由操作
     # 为每张路由表生成默认路由和直连路由
-    def setRouter(self, table, type):
+    def setRouter(self, type):
         if_match = self.ifMatch()
         if if_match['errcode']:
             return if_match
@@ -308,7 +310,7 @@ class Requirements(object):
             update_start_pref += 1
 
         # 再删除原先1001-10000的旧策略，如果修改定义范围一定要修改此处！！！！！！！
-        for pref in range (normal_start_pref, normal_end_pref + 1):
+        for pref in range(normal_start_pref, normal_end_pref + 1):
             rule = 'ip rule del pref {0}'.format(pref)
             rulelist.append(rule)
 
@@ -338,6 +340,12 @@ class Requirements(object):
             rate('Reset rule', pref, 32766)
         log('', 'Reset rule progress has been completed.')
 
+    def look(self):
+        ip = str(self.ip)
+        print ip
+
+
+
 def ipz(ip, netmask):
     ipa = RequireIpz(ip, netmask)
     if not ipa.formatCheck()['errcode']:
@@ -347,14 +355,14 @@ def ipz(ip, netmask):
         ip = ipa.formatChange(ip)
         netmask = ipa.maskStyle()
         renetmask = ipa.renetmasker()
-        ipinfo = {  'ip': ip,
-                    'nid': nid,
-                    'brd': brd,
-                    'ip_range': ip_range,
-                    'netmask': netmask,
-                    'renetmask': renetmask,
-                    'errcode': 0,
-                   }
+        ipinfo = {'ip': ip,
+                  'nid': nid,
+                  'brd': brd,
+                  'ip_range': ip_range,
+                  'netmask': netmask,
+                  'renetmask': renetmask,
+                  'errcode': 0,
+                }
         return ipinfo
     else:
         ipinfo = { 'errcode': ipa.formatCheck()['errcode'],
@@ -414,6 +422,13 @@ def ruler(**kwargs):
     if kwargs['remove']:
         pbr = Requirements('', '')
         pbr.resetRuler()
+    elif kwargs['look']:
+        ip = kwargs['ip']
+        if not ipz(ip, 32)['errcode']:
+            pbr = Requirements('', ip)
+            pbr.look()
+        else:
+            print ipz(ip, 32)
     # 选择更新某个表，或者更新三张表
     elif kwargs['update']:
         for ispname, gwip in kwargs['ISP'].items():
@@ -430,6 +445,8 @@ def ruler(**kwargs):
                     errcode = 'errcode: {0}'.format(rule['errcode'])
                     log(errcode, errmsg)
 
+
+
 def main():
     args = docopt(__doc__, version='Policy Based Routing for Linux 1.0')
     kwargs = {'update': args['update'],
@@ -439,11 +456,14 @@ def main():
                       'CTL': args['--ctl-gw'],
                       'CUC': args['--cuc-gw'],
                       },
+              'look': args['look'],
+              'ip': args['<ip>'],
               }
     if args['route']:
         router(**kwargs)
     elif args['rule']:
         ruler(**kwargs)
+
 
 if __name__ == '__main__':
     main()
