@@ -386,6 +386,7 @@ def log(errcode, errmsg):
     print log
     logfile = open(LOGFILE, 'a+')
     logfile.write(log + '\n')
+    logfile.close()
 
 # 这是一个提供命令执行进度百分百的方法
 def rate(progressname, current, total):
@@ -408,7 +409,7 @@ def router(**kwargs):
             # 先生成路由脚本
             sys.stdout.write('Generating script operations.\r')
             sys.stdout.flush()
-            route = pbr.setRouter(ispname, type)
+            route = pbr.setRouter(type)
             if not route['errcode']:
                 executeScript('Set {0} route to {1}'.format(ispname, gwip), route['routelist'])
                 log('', 'Set {0} route to {1} progress has been completed.'.format(ispname, gwip))
